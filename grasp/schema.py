@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from pydantic import BaseModel, Field
 
 from .diffparser import ChangeType
-from .risk import RiskLevel
+from .risk import Finding, RiskLevel
 
 
 class FileNarrative(BaseModel):
@@ -40,6 +40,7 @@ class FileReview:
     removed: int
     is_binary: bool
     secret_lines: list[int] = field(default_factory=list)
+    findings: list[Finding] = field(default_factory=list)
     narrative: Optional[FileNarrative] = None
     model_skipped_reason: Optional[str] = None
 

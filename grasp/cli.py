@@ -1,8 +1,11 @@
 """Command line entry point.
 
 One command, review, with a few clear options. The default reviews the
-staged change, which is the common case right before a commit. Every
-expected failure becomes a short message and a stable exit code.
+staged change, which is the common case right before a commit. Pointing it
+at a pull request and adding --post turns it into a reviewer's assistant
+that leaves inline comments, but only on the findings you approve.
+
+Every expected failure becomes a short message and a stable exit code.
 """
 
 from __future__ import annotations
@@ -15,13 +18,16 @@ import typer
 from rich.console import Console
 
 from . import __version__
-from . import diffsource
+from . import diffsource, gh
+from .approve import approve
 from .config import load_settings
-from .diffparser import parse_diff
+from .diffparser import Diff, parse_diff
 from .errors import GraspError, InputError
 from .model import HttpModelClient
+from .publish import DEFAULT_MAX_COMMENTS, build_review, candidates
 from .report import render_markdown, render_terminal
 from .review import review as run_review
+from .schema import ReviewReport
 
 app = typer.Typer(add_completion=False, help="Understand and triage a change before you merge it.")
 console = Console()
@@ -43,10 +49,21 @@ def main(
     """Grasp: a reviewer's assistant for pull requests."""
 
 
-def _get_diff_text(range_ref: Optional[str], file: Optional[Path], use_stdin: bool) -> str:
-    chosen = [bool(range_ref), bool(file), use_stdin]
+def _get_diff_text(
+    range_ref: Optional[str],
+    file: Optional[Path],
+    use_stdin: bool,
+    pr: Optional[int],
+    repo: Optional[str],
+) -> str:
+    chosen = [bool(range_ref), bool(file), use_stdin, pr is not None]
     if sum(chosen) > 1:
-        raise InputError("Choose only one of --range, --file, or --stdin.")
+        raise InputError("Choose only one of --pr, --range, --file, or --stdin.")
+    if pr is not None:
+        if not repo:
+            raise InputError("--pr needs --repo, in the form owner/repo.")
+        gh.ensure_available()
+        return gh.pr_diff(repo, pr)
     if range_ref:
         return diffsource.from_range(range_ref)
     if file:
@@ -58,6 +75,8 @@ def _get_diff_text(range_ref: Optional[str], file: Optional[Path], use_stdin: bo
 
 @app.command()
 def review(
+    pr: Optional[int] = typer.Option(None, "--pr", help="A pull request number to review."),
+    repo: Optional[str] = typer.Option(None, "--repo", help="owner/repo, required with --pr."),
     range_ref: Optional[str] = typer.Option(
         None, "--range", help="A git ref or range, for example main...HEAD."
     ),
@@ -72,6 +91,15 @@ def review(
     ),
     max_files: int = typer.Option(40, help="Most files to send to the model."),
     yes: bool = typer.Option(False, "--yes", help="Do not prompt for confirmation on a large diff."),
+    post: bool = typer.Option(
+        False, "--post", help="After approval, post the findings as inline comments on the pull request."
+    ),
+    approve_all: bool = typer.Option(
+        False, "--approve-all", help="Skip the per finding prompt and approve every finding."
+    ),
+    max_comments: int = typer.Option(
+        DEFAULT_MAX_COMMENTS, help="Most inline comments to post. The rest go in the review body."
+    ),
 ) -> None:
     """Review a change and report what to look at."""
     try:
@@ -81,7 +109,11 @@ def review(
             max_files_override=max_files,
         )
 
-        text = _get_diff_text(range_ref, file, use_stdin)
+        repo_name = gh.normalize_repo(repo) if repo else None
+        if post and pr is None:
+            raise InputError("--post needs --pr and --repo, so Grasp knows where to comment.")
+
+        text = _get_diff_text(range_ref, file, use_stdin, pr, repo_name)
         if not text.strip():
             console.print("Nothing to review. There is no change here.")
             raise typer.Exit()
@@ -112,12 +144,67 @@ def review(
 
         _emit(report, fmt, out)
 
+        if post:
+            _post_flow(
+                report=report,
+                diff=diff,
+                repo=repo_name,
+                pr=pr,
+                max_comments=max_comments,
+                approve_all=approve_all,
+            )
+
     except GraspError as exc:
         err_console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=exc.exit_code)
 
 
-def _emit(report, fmt: str, out: Optional[Path]) -> None:
+def _post_flow(
+    *,
+    report: ReviewReport,
+    diff: Diff,
+    repo: Optional[str],
+    pr: Optional[int],
+    max_comments: int,
+    approve_all: bool,
+) -> None:
+    """Ask which findings to post, then post them as one review."""
+    if repo is None or pr is None:
+        raise InputError("--post needs --pr and --repo.")
+
+    offered = candidates(report)
+    if not offered:
+        console.print("\nNothing worth commenting on. No review posted.")
+        return
+
+    chosen = approve(offered, console, assume_yes=approve_all)
+    if not chosen:
+        console.print("\nNothing approved. No review posted.")
+        return
+
+    payload = build_review(chosen, report, diff, max_comments=max_comments)
+
+    console.print()
+    console.print(
+        f"Ready to post to {repo} pull request {pr}: "
+        f"{payload.inline_count} inline comment(s), "
+        f"{len(payload.body_only)} note(s) in the review body."
+    )
+    if not approve_all and sys.stdin.isatty():
+        if not typer.confirm("Post this review now?"):
+            console.print("Not posted.")
+            return
+
+    gh.ensure_available()
+    head_sha = gh.pr_head_sha(repo, pr)
+    url = gh.post_review(repo, pr, payload.to_api(head_sha))
+    if url:
+        console.print(f"[green]Posted.[/green] {url}")
+    else:
+        console.print("[green]Posted.[/green]")
+
+
+def _emit(report: ReviewReport, fmt: str, out: Optional[Path]) -> None:
     if fmt not in {"text", "md"}:
         raise InputError("Format must be text or md.")
     if fmt == "md" or out is not None:

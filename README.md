@@ -1,27 +1,59 @@
 # Grasp
 
-A reviewer's assistant for pull requests. Grasp helps a human understand and triage a change before it is merged.
+A reviewer's assistant for pull requests. Grasp reads a change, tells you which files actually deserve your attention and why, and can leave inline comments on the exact lines you approve.
 
-AI now writes a large share of code, and teams are shipping changes faster than anyone can review them. Review has become the bottleneck, because a human still has to understand code they did not write, at volume. Grasp attacks that bottleneck. It reads a diff, scores the risk of every file with deterministic rules, and, when a model is available, adds a plain explanation and the specific points a reviewer should check.
+It never runs the code it reads, never stores it, and works fully offline. It is open source, so every one of those claims can be checked.
 
-Grasp never runs the code it reads. It never stores the code. It can run fully offline. It is open source so every one of these claims can be checked.
+## The problem
+
+AI writes a large share of code now, so teams open far more pull requests than anyone can carefully read. The bottleneck moved from writing code to reviewing it. A reviewer still has to understand code they did not write, at volume, under time pressure, and the risky parts look exactly like the boring parts.
+
+Grasp attacks that specific moment. It does not try to write code or to replace the reviewer. It answers one question: out of these fifteen files, which two should a human actually open, and why.
+
+## What it looks like
+
+Run it on a change and you get a report grouped by risk, highest first:
+
+```
+───────────────────────── Grasp review ─────────────────────────
+2 file(s): 1 high risk, 0 medium, 1 low. Overall: high.
+
+HIGH risk
+  auth/session.py (modified, +2 -1)
+    . touches authentication or sessions
+    . disables TLS certificate verification
+    . adds something that looks like a secret or key
+    ! possible secret on line(s) 12
+
+low risk
+  src/utils/parse.ts (modified, +1 -0)
+    . no sensitive areas or risky patterns detected
+```
+
+Point it at a pull request with `--post` and it asks before anything is published:
+
+```
+1/3 HIGH auth/session.py (line 11)
+  disables TLS certificate verification
+  include this? [y]es / [n]o / [a]ll remaining / [q]uit:
+```
+
+Whatever you approve lands on the pull request as an inline comment on that exact line:
+
+> **Grasp:** disables TLS certificate verification
+>
+> _Worth a look rather than a verdict._
 
 ## Why not just ask an AI in your editor?
 
-Because the problem is not explaining one file. Your editor assistant already does that well. The problem is the review gate, where someone has to get through a whole pull request of code they did not write, at volume, fast.
+Because explaining one file is not the problem. Your editor assistant already does that well. The problem is the review gate.
 
 - Different person. An editor assistant helps whoever is writing the code. Grasp helps whoever is reviewing it.
 - Different moment. The assistant lives in the editor during authoring. Grasp lives at the review gate, in your terminal or in CI.
-- Push, not pull. An assistant waits for you to ask, file by file. Grasp runs by itself across the whole change and hands back a ranked answer: out of these fifteen files, these two matter, and here is why.
-- A decision, not an opinion. Ask an assistant "is this risky" and you get a different answer every time. Grasp's risk level comes from explicit rules, so it is the same every run and you can audit the reasons.
+- Push, not pull. An assistant waits for you to ask, one file at a time. Grasp runs across the whole change by itself and hands back a ranked answer.
+- A decision, not an opinion. Ask an assistant whether something is risky and the answer varies every time. Grasp's risk levels come from explicit rules, so they are identical on every run and you can audit the reasons.
 
-In one line: an assistant answers when you ask about one file. Grasp decides, automatically and the same way every time, which files in a pull request a human should even open.
-
-## What makes it different
-
-1. Risk triage is deterministic, not guessed. The risk level of a file comes from explicit rules over the real diff, so it is reliable and every level comes with its reasons. The model never sets the risk level.
-2. It works without a model. With no model configured, you still get the full risk triage. The model only adds narrative on top.
-3. It is local first. Your code never leaves your machine unless you choose an API model with your own key, and even then secrets are caught before anything is sent.
+In one line: an assistant answers when you ask about one file. Grasp decides, automatically and the same way every time, which files a human should even open.
 
 ## Install
 
@@ -29,101 +61,177 @@ In one line: an assistant answers when you ask about one file. Grasp decides, au
 pip install -e .
 ```
 
-This installs the `grasp` command. Python 3.9 or later. On Python 3.9 and 3.10, a small `tomli` package is installed automatically to read the optional config file; on 3.11 and newer the standard library is used.
+Python 3.9 or newer. That installs the `grasp` command.
 
-For narrative, Grasp needs a model. Either run a local one (for example Ollama) so nothing leaves your machine, or set an API key for an OpenAI compatible endpoint:
+If your shell cannot find `grasp` afterwards, the script directory is not on your PATH. Either add it, or use `python3 -m grasp.cli` in place of `grasp` everywhere below.
 
-```
-export GRASP_API_KEY=your_key_here
-```
+To post comments on pull requests you also need the [GitHub CLI](https://cli.github.com), signed in with `gh auth login`. Grasp has no GitHub credentials of its own and reuses yours.
 
-## Use
+## Quick start
 
-Review the change you are about to commit:
-
-```
-grasp review
-```
-
-Review a pull request range:
-
-```
-grasp review --range main...HEAD
-```
-
-Review a patch file, or a diff piped in:
-
-```
-grasp review --file change.diff
-git diff | grasp review --stdin
-```
-
-Risk triage only, no model, fully offline:
+Review what you are about to commit, with no model and nothing leaving your machine:
 
 ```
 grasp review --no-model
 ```
 
-Write a report to paste into a pull request:
+Review a whole branch against main:
 
 ```
-grasp review --range main...HEAD --format md --out review.md
+grasp review --range main...HEAD --no-model
 ```
 
-Options worth knowing:
-
-- `--mode auto|local|api` chooses the model. Auto prefers a reachable local model, so privacy is the default path.
-- `--no-model` runs the deterministic triage only.
-- `--allow-secrets` redacts detected secrets and continues in API mode. Without it, Grasp refuses to send a detected secret to a cloud model.
-- `--max-files N` caps how many files are sent to the model. All files are still triaged.
-
-## What you get
-
-A report grouped by risk, highest first. For each file: its risk level and the exact reasons, any detected secret, and, when the model ran, a plain summary, the things the change does not verify, and a few questions the reviewer should be able to answer.
-
-## Use Grasp in your own repositories
-
-Once Grasp is installed, you can run it from inside any git project on your machine. It reads that project's change, not Grasp's.
+Review any pull request in any repo you can access:
 
 ```
-cd ~/path/to/your-project
-grasp review                      # review what you are about to commit
-grasp review --range main...HEAD  # review a whole branch against main
+grasp review --pr 231 --repo owner/repo --no-model
 ```
 
-To make Grasp available in a project's CI on GitHub, install it from this repository rather than from the project itself:
+## Review a pull request and comment only where you choose
+
+This is the main workflow and the reason Grasp exists.
+
+```
+grasp review --pr 231 --repo owner/repo --post
+```
+
+What happens, in order:
+
+1. Grasp fetches the pull request diff through the GitHub CLI you are already signed in to.
+2. It runs the review and prints it.
+3. It walks the findings one at a time, highest risk first, and asks about each one. You answer yes, no, all remaining, or quit.
+4. It shows exactly what is about to be posted and asks once more.
+5. It posts a single review. Findings tied to a line become inline comments on that line. Findings about the file as a whole go into the review body.
+
+Nothing is posted without your approval. Approve nothing and nothing is posted.
+
+Flags for this workflow:
+
+| Flag | What it does |
+| --- | --- |
+| `--post` | Enable the approve and publish step. Requires `--pr` and `--repo`. |
+| `--approve-all` | Skip the per finding prompt and approve everything. Intended for scripts. |
+| `--max-comments N` | Cap inline comments, default 30. Anything over the cap is listed in the review body rather than dropped. |
+
+Design choices behind it:
+
+- One review, not a pile of comments. GitHub groups the inline comments under a single review, so the pull request does not get buried. Several findings on one line are merged into one comment.
+- Grasp always posts as a plain comment. It never approves and never requests changes, so it cannot gate your merge on its own judgement.
+- Comment bodies contain only the finding message, never the source line. A secret finding is therefore safe to post in public.
+- Every comment is validated against the parsed diff before sending, because GitHub rejects an entire review if one comment points at a line outside the diff.
+
+## Other ways to run it
+
+Grasp reviews a diff, and a diff can come from anywhere. No pull request is required.
+
+```
+grasp review                                  # your staged change
+git diff HEAD | grasp review --stdin          # everything uncommitted
+grasp review --range HEAD~1...HEAD            # your last commit
+grasp review --range v1.0...v2.0              # between two tags
+grasp review --file change.diff               # a saved patch file
+grasp review --format md --out review.md      # write Markdown to a file
+```
+
+Because Grasp is installed on your machine, you can run it from inside any git project and it reads that project's change:
+
+```
+cd ~/path/to/any-project
+grasp review --no-model
+```
+
+## Adding a model (optional)
+
+Without a model you get the full risk triage, which is a complete and useful result. A model adds narrative on top: a plain summary of each change, the things it does not verify, and questions a reviewer should be able to answer. A model never changes a risk level.
+
+Local and private, nothing leaves your machine:
+
+```
+brew install ollama
+ollama pull qwen2.5-coder
+ollama serve
+grasp review --mode local
+```
+
+Or an OpenAI compatible API with your own key. The key is read only from the environment, never from a flag or a config file, so it stays out of your shell history and out of version control:
+
+```
+export GRASP_API_KEY=your_key_here
+grasp review --mode api
+```
+
+The default mode is `auto`, which prefers a reachable local model, so privacy is the path of least resistance.
+
+## Automatic reviews in CI
+
+A ready to use GitHub Action lives in `.github/workflows/grasp.yml`. On every pull request it runs Grasp and posts the review as a comment, so the triage is waiting before a reviewer opens a single file.
+
+By default it runs the deterministic triage only, which needs no secret and sends nothing anywhere. To add the model narrative, create a repository secret named `GRASP_API_KEY` and switch to the "with model" line noted in the workflow file.
+
+To use it in another repository, copy that workflow file into that repository's `.github/workflows/` folder and change the install line to pull Grasp from here:
 
 ```
 pip install "git+https://github.com/YOUR_USERNAME/grasp.git@main"
 ```
 
-## Automatic review on pull requests
-
-A ready to use GitHub Action lives in `.github/workflows/grasp.yml`. On every pull request it runs Grasp and posts the review as a comment, so the triage is waiting for the reviewer before they open a single file.
-
-By default it runs the deterministic triage only, which needs no secret and sends nothing anywhere. To also get the model written narrative, add a repository secret named `GRASP_API_KEY` and switch to the "with model" line noted in the workflow file.
-
-To use the Action in another repository, copy that workflow file into that repository's `.github/workflows/` folder and change the install line to the `git+https` form above.
+One setting is required in any repo using the Action: Settings, then Actions, then General, then Workflow permissions set to "Read and write permissions." Without it the comment step cannot post.
 
 ## How it works
 
 ```
-diff  ->  parse  ->  risk triage (rules)  ->  protect secrets  ->  model narrative  ->  report
+diff -> parse -> risk triage (rules) -> protect secrets -> model narrative -> report -> approve -> post
 ```
 
-The parse and risk steps are deterministic and need no model. The secret step runs before anything is sent anywhere. The model step is optional and never changes a risk level.
+The parse and triage steps are deterministic and need no model. The secret check runs before anything could leave the machine. The model step is optional. The approve step is the only thing that can publish, and only with your consent.
+
+| Module | Responsibility |
+| --- | --- |
+| `diffsource.py` | Get the diff from staged changes, a range, a file, or stdin |
+| `gh.py` | Thin wrapper over the GitHub CLI for diffs, head commits, and posting |
+| `diffparser.py` | A defensive unified diff parser |
+| `risk.py` | Deterministic rules producing line anchored findings |
+| `grounding.py` | Secret and language detection |
+| `model.py` | Model client for local or API, with retries and schema validation |
+| `review.py` | Orchestration, including secret protection |
+| `publish.py` | Build and validate the GitHub review payload |
+| `approve.py` | The per finding approval step |
+| `report.py` | Terminal and Markdown output |
 
 ## Trust and safety
 
-- The code never leaves your control. Local mode sends nothing. API mode sends straight from your machine to your own provider with your own key.
+- Your code never leaves your control. Local mode sends nothing. API mode sends straight from your machine to your own provider with your own key.
 - The code is never executed. Grasp only reads and parses.
-- Nothing is stored. The diff is held in memory for one run and discarded.
-- Secrets are caught before they travel. In API mode a detected secret stops the run, or is redacted with your consent.
-- No telemetry.
+- Nothing is stored. The diff is held in memory for one run and then discarded.
+- Secrets are caught before they travel. In API mode a detected secret stops the run, or is redacted with your explicit consent.
+- Nothing is published without approval. In a non interactive shell Grasp refuses to guess and stops.
+- No telemetry, and no GitHub token of its own.
 
-## Edge cases
+## Configuration
 
-Grasp is built to fail softly and never crash on bad input. The full catalog of handled cases is in `docs/EDGE_CASES.md`.
+Everything works with no configuration. An optional `.grasp.toml` in the project or home directory can set defaults:
+
+```toml
+mode = "auto"                 # auto, local, or api
+local_model = "qwen2.5-coder"
+local_endpoint = "http://localhost:11434"
+api_model = "gpt-4o-mini"
+api_endpoint = "https://api.openai.com/v1"
+max_files = 40
+```
+
+The API key is never read from this file, only from the `GRASP_API_KEY` environment variable.
+
+## What Grasp does not do
+
+Stated plainly, because a tool that oversells itself is not worth trusting.
+
+- It is not a bug finder or a security scanner. It points at what deserves attention; it does not claim to find every defect.
+- The rules target common languages and patterns. They will miss some risks and will occasionally flag something harmless. Every finding is worded as something to check rather than a verdict, so a wrong flag costs you a glance.
+- Risk is assessed per file. A risk that only appears when two files interact is not caught today.
+- The narrative comes from a model and can be wrong. It is grounded in the parsed diff, and the reviewer questions exist so a human verifies rather than trusts.
+- Running it twice posts two reviews. There is no deduplication across runs yet.
+
+The full catalogue of handled edge cases is in `docs/EDGE_CASES.md`.
 
 ## Tests
 
@@ -131,6 +239,8 @@ Grasp is built to fail softly and never crash on bad input. The full catalog of 
 pip install -e ".[dev]"
 pytest
 ```
+
+The suite covers the diff parser against awkward real world diffs, the risk rules, secret handling, the review payload, and the approval step. A fake model client means the whole flow is tested with no network and no cost.
 
 ## License
 

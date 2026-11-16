@@ -77,6 +77,26 @@ This is the catalog of edge cases Grasp is built to handle. The guiding rule is 
 53. Unknown keys in the config file. Rejected by name, so typos are caught. Handled in `config._read_config_file`.
 54. API key only ever read from the environment, never from a flag or the config file, so it is not written to disk or shell history. Handled in `config.load_settings`.
 
+## Posting a review to a pull request
+
+55. GitHub CLI not installed. Checked before anything else and reported with the install link, exit code 2. Handled in `gh.ensure_available`.
+56. GitHub CLI installed but logged out. Detected up front with a message pointing at `gh auth login` and `gh auth switch`, rather than failing deep in a request.
+57. `--post` without `--pr` or `--repo`. Rejected with a message, because Grasp will not guess where to comment.
+58. Repository given as a full URL rather than owner/repo. Accepted and normalized, with or without a trailing `.git`. Tested.
+59. Repository given as nonsense. Rejected by name. Tested.
+60. No findings worth commenting on. Nothing is posted and the run says so. Low severity notes, including "nothing stood out", are never offered, because commenting to say a file looked fine is noise.
+61. The reviewer approves nothing. Nothing is posted and the run says so. Tested.
+62. The reviewer quits mid approval. Everything is discarded and nothing is posted.
+63. Non interactive shell with no explicit approval. The run stops rather than guessing, and explains that `--approve-all` exists. Tested.
+64. A finding points at a line that is not part of the diff. GitHub would reject the whole review, since the reviews endpoint is all or nothing. Every comment is validated against the parsed diff first, and anything that cannot be pinned is moved into the review body rather than silently dropped. Tested.
+65. Several findings on the same line. Grouped into one inline comment with a bullet per finding, so a line never collects duplicate comments. Tested.
+66. Findings on removed lines. Anchored to the old file side, which is what GitHub expects for a deletion. Tested.
+67. Very many findings. Inline comments are capped, highest severity first, and the overflow is listed in the review body so nothing is lost. Tested.
+68. A secret finding being posted publicly. Comment bodies carry only the finding message and never the matched source text, so the secret value cannot leak into the pull request. Tested explicitly.
+69. The pull request moves while you are approving. The review is pinned to the head commit fetched at post time, so comments land on the revision that was reviewed.
+70. Posting twice. Grasp does not deduplicate across runs, so running it twice posts two reviews. Each comment carries a hidden marker identifying it as Grasp's, which makes them easy to spot and is the hook for future deduplication.
+71. Grasp never approves or requests changes. The review is always submitted as a plain comment, so the tool cannot gate a merge on its own judgement. Tested.
+
 ## Known limits, stated honestly
 
 - The deterministic rules target common languages and shapes. They will miss some risks and will occasionally flag something benign. Every flag is phrased as a point to check, so a wrong flag costs a glance, not a mistake.

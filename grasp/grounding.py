@@ -57,6 +57,11 @@ def language_for(path: str) -> str:
     return "Unknown"
 
 
+def looks_secret(text: str) -> bool:
+    """True if a single line looks like it contains a secret or key."""
+    return any(pattern.search(text) for pattern in _SECRET_PATTERNS)
+
+
 def secret_hits_in_added(file: FileDiff) -> list[int]:
     """Return the new file line numbers of added lines that look like secrets.
 
@@ -66,11 +71,7 @@ def secret_hits_in_added(file: FileDiff) -> list[int]:
     hits: list[int] = []
     for hunk in file.hunks:
         for line in hunk.lines:
-            if line.kind is LineKind.ADDED and _looks_secret(line.text):
+            if line.kind is LineKind.ADDED and looks_secret(line.text):
                 if line.new_lineno is not None:
                     hits.append(line.new_lineno)
     return hits
-
-
-def _looks_secret(text: str) -> bool:
-    return any(pattern.search(text) for pattern in _SECRET_PATTERNS)

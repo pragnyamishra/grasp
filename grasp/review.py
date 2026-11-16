@@ -63,6 +63,7 @@ def review(
                 removed=file.removed,
                 is_binary=file.is_binary,
                 secret_lines=secrets[file.path],
+                findings=assessments[file.path].findings,
             )
         )
 

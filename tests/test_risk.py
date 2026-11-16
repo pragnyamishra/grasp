@@ -114,6 +114,63 @@ def test_large_change_is_at_least_medium():
     assert assess_file(_one(text)).level >= RiskLevel.MEDIUM
 
 
+def test_regex_exec_method_is_not_flagged():
+    # A real false positive found on a TypeScript repo: pattern.exec(text)
+    # is the regular expression method, not the dangerous builtin.
+    text = (
+        "diff --git a/src/utils/parse.ts b/src/utils/parse.ts\n"
+        "--- a/src/utils/parse.ts\n"
+        "+++ b/src/utils/parse.ts\n"
+        "@@ -1 +1,2 @@\n"
+        " const pattern = /ab+c/;\n"
+        "+  const match = pattern.exec(input);\n"
+    )
+    assessment = assess_file(_one(text))
+    assert assessment.level is RiskLevel.LOW
+    assert not any("exec" in r for r in assessment.reasons)
+
+
+def test_bare_exec_is_still_flagged():
+    text = (
+        "diff --git a/src/utils/parse.py b/src/utils/parse.py\n"
+        "--- a/src/utils/parse.py\n"
+        "+++ b/src/utils/parse.py\n"
+        "@@ -1 +1,2 @@\n"
+        " import sys\n"
+        "+    exec(user_supplied)\n"
+    )
+    assessment = assess_file(_one(text))
+    assert assessment.level is RiskLevel.HIGH
+    assert any("exec" in r for r in assessment.reasons)
+
+
+def test_localhost_http_is_not_flagged():
+    text = (
+        "diff --git a/src/config.ts b/src/config.ts\n"
+        "--- a/src/config.ts\n"
+        "+++ b/src/config.ts\n"
+        "@@ -1 +1,2 @@\n"
+        " const x = 1;\n"
+        '+  const base = "http://localhost:3000";\n'
+    )
+    assert assess_file(_one(text)).level is RiskLevel.LOW
+
+
+def test_findings_carry_the_line_they_were_found_on():
+    text = (
+        "diff --git a/src/client.py b/src/client.py\n"
+        "--- a/src/client.py\n"
+        "+++ b/src/client.py\n"
+        "@@ -5,2 +5,3 @@\n"
+        " import requests\n"
+        "+    requests.get(url, verify=False)\n"
+        " done = True\n"
+    )
+    assessment = assess_file(_one(text))
+    tls = [f for f in assessment.findings if f.code == "tls-off"]
+    assert tls and tls[0].line == 6
+
+
 def test_removed_test_assertion_is_medium():
     text = (
         "diff --git a/tests/test_app.py b/tests/test_app.py\n"
