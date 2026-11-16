@@ -1,0 +1,51 @@
+name: Grasp PR review
+
+# Runs Grasp on every pull request and posts the review as a comment.
+# By default it runs the deterministic risk triage only, which needs no
+# secret and sends nothing anywhere. To also get the model written
+# narrative, add a repository secret named GRASP_API_KEY and switch the
+# review step to the "with model" version noted below.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the pull request
+        uses: actions/checkout@v4
+        with:
+          # Full history so the base commit is available for the diff.
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Grasp
+        # This workflow lives in the Grasp repo, so it installs from here.
+        # To use Grasp in another repository, replace this line with:
+        #   pip install "git+https://github.com/YOUR_USERNAME/grasp.git@main"
+        run: pip install -e .
+
+      - name: Run Grasp on the pull request
+        run: |
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          grasp review --range "$BASE_SHA...HEAD" --no-model --format md --out grasp-review.md
+          # If there was nothing to review, still leave a file so the comment step works.
+          [ -f grasp-review.md ] || echo "Grasp: no reviewable changes found." > grasp-review.md
+          # With a model instead, use:
+          #   GRASP_API_KEY="${{ secrets.GRASP_API_KEY }}" \
+          #   grasp review --range "$BASE_SHA...HEAD" --mode api --format md --out grasp-review.md
+
+      - name: Post the review as a comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr comment "${{ github.event.pull_request.number }}" --body-file grasp-review.md

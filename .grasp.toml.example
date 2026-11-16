@@ -1,0 +1,15 @@
+# Copy this file to .grasp.toml to set your own defaults.
+# Grasp works with no config at all, so everything here is optional.
+# The API key is never placed here. It is read only from the GRASP_API_KEY
+# environment variable, so keys are never written to disk by this tool.
+
+mode = "auto"                 # auto, local, or api. Auto prefers a local model.
+local_model = "qwen2.5-coder"
+local_endpoint = "http://localhost:11434"
+api_model = "gpt-4o-mini"
+api_endpoint = "https://api.openai.com/v1"
+request_timeout = 60.0
+retries = 3
+max_files = 40
+max_diff_bytes = 2000000
+confirm_large_inputs = true

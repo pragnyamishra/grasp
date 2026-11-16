@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+
+# Tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local config and secrets (keys are read from the environment, never a file)
+.grasp.toml
+.env
+
+# Editors
+.idea/
+.vscode/
+*.swp
+.DS_Store
