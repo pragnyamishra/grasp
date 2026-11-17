@@ -1,5 +1,7 @@
 # Copy this file to .grasp.toml to set your own defaults.
 # Grasp works with no config at all, so everything here is optional.
+# A .grasp.toml in the project wins over one in your home directory.
+#
 # The API key is never placed here. It is read only from the GRASP_API_KEY
 # environment variable, so keys are never written to disk by this tool.
 
@@ -13,3 +15,57 @@ retries = 3
 max_files = 40
 max_diff_bytes = 2000000
 confirm_large_inputs = true
+
+
+# ---------------------------------------------------------------------------
+# Rules
+#
+# Nothing in the default rule set is fixed. What counts as sensitive differs
+# per codebase, so you can silence a rule, re-grade one, move a threshold, or
+# add patterns for your own domain, without editing any Python.
+#
+# Run `grasp rules` to list every rule code. An unknown code is reported as an
+# error rather than ignored, so a typo cannot silently do nothing.
+# ---------------------------------------------------------------------------
+
+[rules]
+# Rules that are noise for your team.
+disable = ["todo", "plain-http"]
+
+# A change bigger than this many added lines is called out as hard to review.
+large_added = 300
+
+# Re-grade a rule that matters more or less in your context.
+[rules.severity]
+cast-any = "low"
+dependency-change = "high"
+
+# Your own sensitive areas, matched against the file path. Use these for the
+# domain words your codebase actually uses.
+[[rules.path]]
+code = "path-tenant"
+pattern = "(?i)(tenant|organisation|organization)"
+message = "touches tenant isolation, which needs a second pair of eyes"
+severity = "high"
+
+[[rules.path]]
+code = "path-public-api"
+pattern = "(?i)(^|/)(public|external)[-_]?api/"
+message = "changes a public API surface, so it may be a breaking change"
+severity = "high"
+
+# Your own patterns, looked for on each added line. The optional `unless`
+# suppresses the finding when that second pattern is on the same line, which
+# is how you express "flag the unsafe form but not the safe one".
+[[rules.line]]
+code = "raw-fetch"
+pattern = "\\bfetch\\s*\\("
+message = "uses raw fetch instead of the shared api client"
+severity = "medium"
+unless = "apiClient"
+
+[[rules.line]]
+code = "feature-flag-removed"
+pattern = "isEnabled\\s*\\(\\s*['\"]legacy"
+message = "references a legacy feature flag that is being retired"
+severity = "low"

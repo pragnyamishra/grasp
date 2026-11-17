@@ -176,6 +176,86 @@ pip install "git+https://github.com/YOUR_USERNAME/grasp.git@main"
 
 One setting is required in any repo using the Action: Settings, then Actions, then General, then Workflow permissions set to "Read and write permissions." Without it the comment step cannot post.
 
+## What it flags
+
+Grasp is not a linter. ESLint and Ruff already enforce style and catch unused variables, and duplicating them would just train you to ignore the output. A rule belongs here only if a human reviewer should personally stop and think about it.
+
+High risk, pinned to the line where it was found:
+
+| Rule | Why it matters |
+| --- | --- |
+| `dangerouslySetInnerHTML` | The main cross site scripting vector in React |
+| `.innerHTML` or `.outerHTML` assignment | Raw HTML injection outside React |
+| `document.write`, `eval`, `new Function`, `exec` | Executes strings as code |
+| A secret behind `NEXT_PUBLIC_`, `VITE_`, or `REACT_APP_` | Those prefixes compile into the browser bundle, so the secret ships to every visitor |
+| An auth value in `localStorage` or `sessionStorage` | Readable by any cross site scripting bug |
+| `verify=False`, `rejectUnauthorized: false` | Disables TLS verification |
+| `os.system`, `shell=True`, `pickle.loads`, unsafe `yaml.load` | Server side code execution |
+| SQL built by string concatenation | Injection risk |
+| Something that looks like a secret or key | Credential in the diff |
+| A committed `.env` file | Usually a mistake. Sample and example files are ignored |
+
+Medium risk, worth a glance:
+
+| Rule | Why it matters |
+| --- | --- |
+| A key or token behind a public env prefix | Might be a publishable key, so confirm rather than panic |
+| `@ts-ignore` or `@ts-expect-error` | Type checking switched off on that line |
+| `describe.only`, `it.only`, `test.only` | Silently skips the rest of the test suite |
+| `as any` | A deliberate hole in the type system |
+| `target="_blank"` without `rel="noopener"` | Tabnabbing risk |
+| An empty `catch` block, or a broad `except` | Swallows a failure |
+| A dependency added or changed in `package.json` | Supply chain |
+| Build or compiler config changed | Affects the whole application |
+| A removed test assertion, or a deleted test file | Can hide a regression |
+| A very large change | Size alone makes review unreliable |
+| `TODO` or `FIXME`, or logging something sensitive | Left behind |
+
+File paths that touch authentication, authorization, payments, cryptography, the data layer, or infrastructure are raised on their own, because the area matters even when no single line looks wrong.
+
+Deliberately left out: `key={index}`, exhaustive dependency warnings, unused imports, formatting, plain `console.log`, and bare `: any`. Those are a linter's job or too common to carry signal.
+
+Every rule has a negative test proving the harmless form does not fire. For example `pattern.exec(input)` is a regular expression method, not the dangerous builtin, and reading `el.innerHTML` is not the same as assigning to it. Neither is flagged.
+
+## Tuning the rules for your codebase
+
+None of the above is fixed. What counts as sensitive differs per codebase, so the whole rule set is configurable and no team should have to edit Python. Your money code might live in `/transactions` and someone else's in `/billing`.
+
+See every rule and its code:
+
+```
+grasp rules
+```
+
+Then put a `.grasp.toml` in your project:
+
+```toml
+[rules]
+disable = ["todo", "plain-http"]        # silence what is noise for you
+large_added = 500                       # move the "too big to review" threshold
+
+[rules.severity]
+cast-any = "low"                        # re-grade a rule
+dependency-change = "high"
+
+[[rules.path]]                          # your own sensitive areas
+code = "path-tenant"
+pattern = "(?i)(tenant|organisation)"
+message = "touches tenant isolation, which needs a second pair of eyes"
+severity = "high"
+
+[[rules.line]]                          # your own line patterns
+code = "raw-fetch"
+pattern = "\\bfetch\\s*\\("
+message = "uses raw fetch instead of the shared api client"
+severity = "medium"
+unless = "apiClient"                    # but not when the safe form is present
+```
+
+The `unless` field is how you express "flag the unsafe form but not the safe one," which is what keeps a custom rule from becoming noise.
+
+An unknown rule code is reported as an error rather than ignored, so a typo cannot silently do nothing. A project level `.grasp.toml` wins over one in your home directory. `.grasp.toml.example` in this repo is a fuller, commented starting point.
+
 ## How it works
 
 ```

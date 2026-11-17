@@ -97,6 +97,22 @@ This is the catalog of edge cases Grasp is built to handle. The guiding rule is 
 70. Posting twice. Grasp does not deduplicate across runs, so running it twice posts two reviews. Each comment carries a hidden marker identifying it as Grasp's, which makes them easy to spot and is the hook for future deduplication.
 71. Grasp never approves or requests changes. The review is always submitted as a plain comment, so the tool cannot gate a merge on its own judgement. Tested.
 
+## Rule precision, the harmless forms that must not fire
+
+Each of these is a pattern that a naive rule would flag and a reviewer would resent. Every one has a negative test.
+
+72. `pattern.exec(input)` in JavaScript or TypeScript. The regular expression method, not the dangerous builtin. The rule uses a lookbehind so a method call cannot match. Tested. This was a real false positive found on a production React repository.
+73. Reading `el.innerHTML` rather than assigning to it. Only assignment is a risk. Tested.
+74. `localStorage.setItem('theme', 'dark')`. Browser storage is only flagged when the value looks like an auth token. Tested.
+75. `process.env.NEXT_PUBLIC_API_URL`. A public env var is only flagged when its name suggests a credential, and a key or token is medium rather than high because publishable keys legitimately live there. Tested.
+76. `target="_blank"` together with `rel="noopener"`. The safe form is not flagged, using a rule level exclusion rather than a fragile single regex. Tested.
+77. A `catch` block with a body. Only an empty one is flagged. Tested.
+78. The words "as any" inside a comment. Comment only lines are excluded from the cast rule. Tested.
+79. A plain `http://` URL inside a comment, and `http://localhost`. Both excluded. Tested.
+80. A version bump in `package.json`. `"version": "2.1.0"` looks exactly like a dependency line, so non dependency fields are excluded by name. Tested.
+81. `.env.example`, `.env.sample`, `.env.template`. Sample files are expected in a repository and are not flagged. Tested.
+82. A normal `it(...)` in a test file. Only `.only` is flagged. Tested.
+
 ## Known limits, stated honestly
 
 - The deterministic rules target common languages and shapes. They will miss some risks and will occasionally flag something benign. Every flag is phrased as a point to check, so a wrong flag costs a glance, not a mistake.

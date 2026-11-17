@@ -37,7 +37,7 @@ def review(
     secrets: dict[str, list[int]] = {}
 
     for file in diff.files:
-        assessments[file.path] = assess_file(file)
+        assessments[file.path] = assess_file(file, settings.rules)
         secrets[file.path] = secret_hits_in_added(file)
 
     # Protect the user before any content leaves the machine.

@@ -27,6 +27,7 @@ from .model import HttpModelClient
 from .publish import DEFAULT_MAX_COMMENTS, build_review, candidates
 from .report import render_markdown, render_terminal
 from .review import review as run_review
+from .risk import rule_catalog
 from .schema import ReviewReport
 
 app = typer.Typer(add_completion=False, help="Understand and triage a change before you merge it.")
@@ -202,6 +203,51 @@ def _post_flow(
         console.print(f"[green]Posted.[/green] {url}")
     else:
         console.print("[green]Posted.[/green]")
+
+
+@app.command()
+def rules() -> None:
+    """List every rule, so you know what you can disable or re-grade."""
+    try:
+        settings = load_settings(use_model=False)
+        catalog = rule_catalog(settings.rules)
+        disabled = settings.rules.disabled
+
+        console.rule("[bold]Rules[/bold]")
+        console.print(
+            "Disable or re-grade any of these in a .grasp.toml file. "
+            "Nothing here is fixed.\n"
+        )
+        colors = {"high": "red", "medium": "yellow", "low": "green"}
+        for kind in ("path", "line", "structural"):
+            entries = [e for e in catalog if e[3] == kind]
+            if not entries:
+                continue
+            console.print(f"[bold]{kind}[/bold]")
+            for code, severity, message, _ in entries:
+                color = colors[severity.label]
+                off = " [dim](disabled)[/dim]" if code in disabled else ""
+                console.print(
+                    f"  [{color}]{severity.label:<6}[/{color}] "
+                    f"[bold]{code:<22}[/bold] {message}{off}"
+                )
+            console.print()
+
+        console.print(
+            "[dim]Example:\n"
+            "  [rules]\n"
+            '  disable = ["todo", "plain-http"]\n\n'
+            "  [rules.severity]\n"
+            '  cast-any = "low"\n\n'
+            "  [[rules.path]]\n"
+            '  code = "path-tenant"\n'
+            '  pattern = "(?i)(tenant|organisation)"\n'
+            '  message = "touches tenant isolation"\n'
+            '  severity = "high"[/dim]'
+        )
+    except GraspError as exc:
+        err_console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=exc.exit_code)
 
 
 def _emit(report: ReviewReport, fmt: str, out: Optional[Path]) -> None:
